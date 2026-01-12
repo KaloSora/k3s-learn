@@ -41,18 +41,7 @@ terraform init -backend-config="bucket=cvm-k8s-config-1304007562" -backend-confi
 ```
 For tencent cloud oss backend, must provide the secret id and secret key, otherwise it will return 403 Access Denied error.
 
-4. Create vm on tencent cloud
-```bash
-terraform plan -target=module.k8s-cvm -var-file="./dev.tfvars"
-terraform apply -target=module.k8s-cvm -var-file="./dev.tfvars"
-
-# To destroy 
-terraform destroy -target=module.k8s-cvm -var-file="./dev.tfvars"
-```
-
-If you need to modify instance login password, check vars file `dev.tfvars`
-
-### K3s Install
+4. Deploy K3s
 **If you just want a quick and simple k8s environment, can execute below module**
 
 It will only create 1 cvm and install k3s
