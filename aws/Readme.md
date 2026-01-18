@@ -1,6 +1,8 @@
 # Purpose
 This repository mainly use terraform to create vm and deploy k3s on AWS EC2.
 
+[My Blog - AWS and Tencent Cloud K3s](https://kalosora.github.io/2026/01/19/K3S-deployment/)
+
 ## Terraform init
 ```
 cd ./modules
