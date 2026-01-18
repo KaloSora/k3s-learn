@@ -1,0 +1,12 @@
+## To store all variables related to AWS K3S setup
+#########
+
+aws_account_id      = "795359014551"
+aws_region          = "ap-northeast-1"
+aws_vpc_id         = "vpc-049e93d6ffc91a83d"
+aws_subnet_id      = ["subnet-00628a1a4aa10b3c6"]
+
+# EC2 Instance variables
+ec2_key_name = "ec2-k3s-key"
+ec2_instance_type = "t3.micro" # Free tier eligible
+ec2_ssh_inbound_cidr = ["0.0.0.0/8"] # Provide your local IP

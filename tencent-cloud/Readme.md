@@ -1,5 +1,5 @@
 # Purpose
-This repository mainly use terraform to create vm and deploy k8s on tencent cloud.
+This repository mainly use terraform to create vm and deploy k3s on tencent cloud.
 
 # Usage
 Execute below command
