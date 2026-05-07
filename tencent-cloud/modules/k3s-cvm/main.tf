@@ -1,8 +1,34 @@
 locals {
+  cvm_key_name = "cvm_ssh_key"
+  cvm_key_filename = "${path.module}/ssh_key/cvm_key.pem"
+  cvm_key_filename_pub = "${path.module}/ssh_key/cvm_key.pub"
+
   login_user = "ubuntu"
-  script_template = "${path.module}/template/k8s_init.sh.tpl"
-  script_remote = "/tmp/k8s_init.sh"
+  k3s_script = "k3s_install.sh"
 }
+
+# Create local ssh key pair
+# Important: Do not commit the private key to Github
+resource "tls_private_key" "cvm_key" {
+  algorithm = "RSA"
+  rsa_bits  = 4096
+}
+
+resource "local_file" "cvm_private_key" {
+  content  = tls_private_key.cvm_key.private_key_pem
+  filename = local.cvm_key_filename
+  
+  provisioner "local-exec" {
+    command = "chmod 600 ${local.cvm_key_filename}"
+  }
+}
+
+# Upload keypair to tencent cloud
+resource "tencentcloud_key_pair" "cvm-key" {
+  key_name   = local.cvm_key_name
+  public_key = tls_private_key.cvm_key.public_key_openssh
+}
+
 
 # Get availability zones
 data "tencentcloud_availability_zones_by_product" "default" {
@@ -10,13 +36,13 @@ data "tencentcloud_availability_zones_by_product" "default" {
 }
 
 # Get Ubuntu images
-data "tencentcloud_images" "default" {
+data "tencentcloud_images" "ubuntu" {
   image_type = ["PUBLIC_IMAGE"]
-  os_name    = "ubuntu"
+  image_name_regex = "^Ubuntu Server 22.04 LTS 64bit"
 }
 
 # Get availability instance types
-data "tencentcloud_instance_types" "default" {
+data "tencentcloud_instance_types" "cvm_type" {
   # Filter instance family
   filter {
     name   = "instance-family"
@@ -27,29 +53,33 @@ data "tencentcloud_instance_types" "default" {
   memory_size    = var.memory_size
 }
 
-# Create a web server
-resource "tencentcloud_instance" "web" {
+# Create a k3s server
+resource "tencentcloud_instance" "k3s_server" {
   depends_on                 = [tencentcloud_security_group_lite_rule.default]
   count                      = 1
-  instance_name              = "web server"
+  instance_name              = "k3s server"
   availability_zone          = data.tencentcloud_availability_zones_by_product.default.zones.0.name
-  image_id                   = data.tencentcloud_images.default.images.0.image_id
-  instance_type              = data.tencentcloud_instance_types.default.instance_types.0.instance_type
+  image_id                   = data.tencentcloud_images.ubuntu.images.0.image_id
+  instance_type              = data.tencentcloud_instance_types.cvm_type.instance_types.0.instance_type
   system_disk_type           = "CLOUD_PREMIUM"
   system_disk_size           = 50
   allocate_public_ip         = true
   internet_max_bandwidth_out = 100
-  instance_charge_type       = "SPOTPAID"
+  # instance_charge_type       = "SPOTPAID"
+  instance_charge_type       = "POSTPAID_BY_HOUR"
   orderly_security_groups    = [tencentcloud_security_group.default.id]
-  password                   = var.password
+
+  key_ids                    = [tencentcloud_key_pair.cvm-key.id]
+
+  # password = var.password
 
   # Add local-exec to echo instance ip, id and password on console
   provisioner "local-exec" {
     command = <<EOT
-echo "K8s instance IP: ${tencentcloud_instance.web[0].public_ip}"
-echo "K8s instance ID: ${tencentcloud_instance.web[0].id}"
+echo "K8s instance IP: ${tencentcloud_instance.k3s_server[0].public_ip}"
+echo "K8s instance ID: ${tencentcloud_instance.k3s_server[0].id}"
 echo "K8s instance login username: ${local.login_user} - Using ubuntu as image"
-echo "K8s instance login password: ${var.password}"
+
 EOT
   }
 }
@@ -73,38 +103,55 @@ resource "tencentcloud_security_group_lite_rule" "default" {
   ]
 }
 
-# Deploy k3s to the instance
-# K3s module guide: https://github.com/xunleii/terraform-module-k3s?tab=readme-ov-file
-module "k3s" {
-  depends_on = [ tencentcloud_instance.web ]
-  source                   = "xunleii/k3s/module"
-  k3s_version              = "latest"
-  generate_ca_certificates = true
-  global_flags = [
-    "--tls-san ${tencentcloud_instance.web[0].public_ip}",
-    "--write-kubeconfig-mode 644",
-    "--disable=traefik",
-    "--kube-controller-manager-arg bind-address=0.0.0.0",
-    "--kube-proxy-arg metrics-bind-address=0.0.0.0",
-    "--kube-scheduler-arg bind-address=0.0.0.0"
-  ]
-  k3s_install_env_vars = {}
 
-  servers = {
-    "k3s" = {
-      ip = tencentcloud_instance.web[0].private_ip
-      connection = {
-        timeout  = "60s"
-        type     = "ssh"
-        host     = tencentcloud_instance.web[0].public_ip
-        password = var.password
-        user     = local.login_user
-      }
-    }
+# Setup the CVM
+resource "null_resource" "ssh_connection" {
+
+  # No need to set depends_on actually because the resource refer to the public ip already
+  # Just a safety measure
+  depends_on = [ tencentcloud_instance.k3s_server ]
+  
+  # Condition: once instance id changes, this module will re-run
+  triggers = {
+    instance_id = tencentcloud_instance.k3s_server[0].id
   }
-}
 
-resource "local_sensitive_file" "kubeconfig" {
-  content  = module.k3s.kube_config
-  filename = "${path.module}/config.yaml"
+  connection {
+    type        = "ssh"
+    host        = tencentcloud_instance.k3s_server[0].public_ip
+    user        = local.login_user
+    #password    = var.password
+    private_key = tls_private_key.cvm_key.private_key_pem
+    port        = 22
+    timeout     = "2m"
+  }
+
+  # Local-exec provisioner to run commands on your local machine
+  provisioner "local-exec" {
+    command = <<-EOT
+        echo "K3s Instance IP: ${tencentcloud_instance.k3s_server[0].public_ip}"
+        echo "K3s Instance ID: ${tencentcloud_instance.k3s_server[0].id}"
+        echo "Use the command to connect: ssh -i k3s-cvm/ssh_key/cvm_key.pem ubuntu@${tencentcloud_instance.k3s_server[0].public_ip}"
+    EOT
+  }
+
+  # Local script upload with terraform template file
+  provisioner "file" {
+    source      = "${path.module}/script/${local.k3s_script}"
+    destination = "/tmp/${local.k3s_script}"
+  }
+
+  # Remote-exec provisioner to run commands on the CVM instance via SSH
+  provisioner "remote-exec" {
+    inline = [
+      "chmod +x /tmp/${local.k3s_script}",
+
+      # FIXME: For Debug
+      "echo 'Start k3s installation at $(date)' > /tmp/k3s-installation.log",
+      "ls -la /tmp/${local.k3s_script} >> /tmp/k3s-installation.log",
+
+      # Run the setup script
+      "sh /tmp/${local.k3s_script} >> /tmp/k3s-installation.log"
+    ]
+  }
 }

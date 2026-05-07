@@ -1,7 +1,7 @@
-variable "password" {
-  type = string
-  description = "The password of the instance."
-}
+# variable "password" {
+#   type = string
+#   description = "The password of the instance."
+# }
 
 variable "cpu_core_count" {
   type = number

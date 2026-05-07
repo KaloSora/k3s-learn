@@ -1,4 +1,4 @@
-region = "ap-guangzhou"
+region = "ap-chengdu"
 
 # Modify your instance password
-password = "MyVMPassw0rd!"
+password = "XXXXXXXXX"

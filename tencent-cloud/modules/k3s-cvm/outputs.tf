@@ -8,7 +8,7 @@ output "instance_id" {
   value       = tencentcloud_instance.k3s_server[0].id
 }
 
-output "password" {
-  description = "vm password"
-  value       = var.password
-}
+# output "password" {
+#   description = "vm password"
+#   value       = var.password
+# }
