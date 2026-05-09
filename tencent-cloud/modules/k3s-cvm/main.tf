@@ -146,12 +146,11 @@ resource "null_resource" "ssh_connection" {
     inline = [
       "chmod +x /tmp/${local.k3s_script}",
 
-      # FIXME: For Debug
       "echo 'Start k3s installation at $(date)' > /tmp/k3s-installation.log",
       "ls -la /tmp/${local.k3s_script} >> /tmp/k3s-installation.log",
 
       # Run the setup script
-      "sh /tmp/${local.k3s_script} >> /tmp/k3s-installation.log"
+      "sudo sh /tmp/${local.k3s_script} >> /tmp/k3s-installation.log"
     ]
   }
 }
