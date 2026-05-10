@@ -14,3 +14,14 @@ variable "memory_size" {
   description = "The memory size(GB) of the instance."
   default = 8
 }
+
+variable "availability_zone" {
+  type = string
+  description = "The availability zone of the instance."
+}
+
+variable "charge_type" {
+  type = string
+  description = "The charge type of the instance."
+  default = "SPOTPAID"
+}

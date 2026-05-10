@@ -4,7 +4,9 @@ locals {
   cvm_key_filename_pub = "${path.module}/ssh_key/cvm_key.pub"
 
   login_user = "ubuntu"
-  k3s_script = "k3s_install.sh"
+  # k3s_script = "k3s_install.sh"
+  init_script = "init.sh"
+  init_script_tpl = "init.sh.tpl"
 }
 
 # Create local ssh key pair
@@ -49,6 +51,11 @@ data "tencentcloud_instance_types" "cvm_type" {
     values = ["S5"]
   }
 
+  filter {
+    name   = "zone"
+    values = ["${var.availability_zone}"]
+  }
+
   cpu_core_count = var.cpu_core_count
   memory_size    = var.memory_size
 }
@@ -62,26 +69,15 @@ resource "tencentcloud_instance" "k3s_server" {
   image_id                   = data.tencentcloud_images.ubuntu.images.0.image_id
   instance_type              = data.tencentcloud_instance_types.cvm_type.instance_types.0.instance_type
   system_disk_type           = "CLOUD_PREMIUM"
-  system_disk_size           = 50
+  system_disk_size           = 100
   allocate_public_ip         = true
   internet_max_bandwidth_out = 100
-  # instance_charge_type       = "SPOTPAID"
-  instance_charge_type       = "POSTPAID_BY_HOUR"
+  instance_charge_type       = var.charge_type
   orderly_security_groups    = [tencentcloud_security_group.default.id]
 
   key_ids                    = [tencentcloud_key_pair.cvm-key.id]
 
   # password = var.password
-
-  # Add local-exec to echo instance ip, id and password on console
-  provisioner "local-exec" {
-    command = <<EOT
-echo "K8s instance IP: ${tencentcloud_instance.k3s_server[0].public_ip}"
-echo "K8s instance ID: ${tencentcloud_instance.k3s_server[0].id}"
-echo "K8s instance login username: ${local.login_user} - Using ubuntu as image"
-
-EOT
-  }
 }
 
 # Create security group
@@ -111,9 +107,9 @@ resource "null_resource" "ssh_connection" {
   # Just a safety measure
   depends_on = [ tencentcloud_instance.k3s_server ]
   
-  # Condition: once instance id changes, this module will re-run
+  # Condition: once script changed, this module will re-run
   triggers = {
-    instance_id = tencentcloud_instance.k3s_server[0].id
+    script_hash = filemd5("${path.module}/script/${local.init_script_tpl}")
   }
 
   connection {
@@ -126,31 +122,39 @@ resource "null_resource" "ssh_connection" {
     timeout     = "2m"
   }
 
-  # Local-exec provisioner to run commands on your local machine
-  provisioner "local-exec" {
-    command = <<-EOT
-        echo "K3s Instance IP: ${tencentcloud_instance.k3s_server[0].public_ip}"
-        echo "K3s Instance ID: ${tencentcloud_instance.k3s_server[0].id}"
-        echo "Use the command to connect: ssh -i k3s-cvm/ssh_key/cvm_key.pem ubuntu@${tencentcloud_instance.k3s_server[0].public_ip}"
-    EOT
-  }
+  # # Local-exec provisioner to run commands on your local machine
+  # provisioner "local-exec" {
+  #   command = <<-EOT
+  #       echo "K3s Instance IP: ${tencentcloud_instance.k3s_server[0].public_ip}"
+  #       echo "K3s Instance ID: ${tencentcloud_instance.k3s_server[0].id}"
+  #       echo "Use the command to connect: ssh -i k3s-cvm/ssh_key/cvm_key.pem ubuntu@${tencentcloud_instance.k3s_server[0].public_ip}"
+  #   EOT
+  # }
 
   # Local script upload with terraform template file
   provisioner "file" {
-    source      = "${path.module}/script/${local.k3s_script}"
-    destination = "/tmp/${local.k3s_script}"
+    destination = "/tmp/${local.init_script}"
+    content = templatefile(
+      "${path.module}/script/${local.init_script_tpl}",
+      {
+        "instance_ip" : "${tencentcloud_instance.k3s_server[0].public_ip}"
+        "instance_id" : "${tencentcloud_instance.k3s_server[0].id}"
+        "target_user" : "${local.login_user}"
+      }
+    )
   }
 
   # Remote-exec provisioner to run commands on the CVM instance via SSH
   provisioner "remote-exec" {
     inline = [
-      "chmod +x /tmp/${local.k3s_script}",
+      "chmod +x /tmp/${local.init_script}",
 
-      "echo 'Start k3s installation at $(date)' > /tmp/k3s-installation.log",
-      "ls -la /tmp/${local.k3s_script} >> /tmp/k3s-installation.log",
+      "echo 'Start execute init script ...'",
+      "ls -la /tmp/${local.init_script}",
 
       # Run the setup script
-      "sudo sh /tmp/${local.k3s_script} >> /tmp/k3s-installation.log"
+      "sudo sh /tmp/${local.init_script}",
+      "echo 'Execution completed!'"
     ]
   }
 }
