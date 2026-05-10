@@ -53,6 +53,29 @@ setup_k3s (){
     echo "=== Deployment completed, current status as below ==="
     kubectl get pods -A
 
+    # ----------------------------------------------------------------------
+    # Install Helm (using CDN for faster download)
+    # ----------------------------------------------------------------------
+    echo "=== Install Helm ==="
+    if ! command -v helm &> /dev/null; then
+        TENCENT_MIRROR="https://get.helm.sh/"
+        HELM_VERSION="v3.12.0"                    
+        HELM_TAR="helm-$HELM_VERSION-linux-amd64.tar.gz"
+        URL="$TENCENT_MIRROR/$HELM_TAR"
+
+        echo "Downloading $URL ..."
+        curl -fsSL "$URL" -o "$HELM_TAR"
+
+        echo "Extracting $HELM_TAR ..."
+        tar -zxvf "$HELM_TAR"
+        mv linux-amd64/helm /usr/local/bin/helm
+        chmod +x /usr/local/bin/helm
+        rm -rf "$HELM_TAR" linux-amd64
+        echo "Helm $HELM_VERSION installed successfully at $(which helm)."
+    else
+        echo "Helm already installed: $(helm version --short)"
+    fi
+
     echo "=== End to Install K3s ==="
 }
 
